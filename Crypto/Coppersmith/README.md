@@ -1,26 +1,42 @@
-# coppersmith-curve  Zero-Trust Identity
+# coppersmith-curve ~ dari RSA broadcast sampe private key ECDSA kebuka
 
-**CTF:** polriCTF 2026  
-**Category:** Crypto  
-**Points:** 100  
-**Solves:** 92  
-**Flag:** `polriCTF26{hastad_broadcast_leaks_the_ecdsa_nonce_and_the_curve_falls}`
-
----
-
-## deskripsi
-
-> Sebuah layanan "Zero-Trust Identity". Untuk login sebagai admin kamu harus menyodorkan tanda tangan ECDSA secp256k1 `(r, s)` yang valid atas pesan persis `b"admin=true"`. Layanan ini hanya mau menandatangani heartbeat miliknya sendiri untukmu. Selebihnya, itu masalahmu.
->
-> **Akses:** `nc 18.143.187.232 9008`
-
-judulnya "coppersmith-curve" tapi pas dibuka… ya gak pure coppersmith sih. lebih ke hastad + ecdsa nonce leak. naming is marketing I guess.
+> **CTF:** polriCTF 2026  
+> **Target:** `18.143.187.232`  
+> **Port:** `9008` (Zero-Trust Identity)  
+> **Solved:** 2026-08-01  
+> **Author:** gw / tim (gw doang sih ini)  
+> **Tag:** Hastad broadcast, ECDSA known-nonce, xorshift PRNG, secp256k1  
+> **Points:** 100 · **Solves:** 92
 
 ---
 
-## recon
+## awalnya: nc doang, menu aneh
 
-connect ke service, dapet banner + menu:
+Jadi tantangannya bilang: layanan "Zero-Trust Identity". Buat login admin harus sodorin tanda tangan ECDSA secp256k1 `(r, s)` yang valid atas pesan persis `b"admin=true"`. Layanan cuma mau nandatanganin heartbeat miliknya sendiri. Selebihnya, masalah kita.
+
+Aksesnya:
+
+```bash
+nc 18.143.187.232 9008
+```
+
+(di mesin gw `nc` nggak ada, jadi pake python socket — sama aja.)
+
+Banner-nya:
+
+```
+=================================================================
+  coppersmith-curve   (polriCTF 2026)   [ Zero-Trust Identity ]
+  Authenticate as admin: present a valid secp256k1 ECDSA signature
+  (r, s) over the exact message  b"admin=true".
+  The service will sign its OWN heartbeat for you, and mirror your
+  session seed to three identity replicas (RSA, e=3).
+=================================================================
+```
+
+Judulnya "coppersmith-curve" tapi dari banner aja udah kebaca: **RSA e=3 ke tiga replica** + **ECDSA**. Ini bukan pure Coppersmith sih. Lebih ke Hastad + nonce leak. Naming is marketing I guess.
+
+Menu-nya:
 
 ```
 [1] mirror seed to replicas   (prints N1,e,C1 / N2,e,C2 / N3,e,C3)
@@ -30,9 +46,19 @@ connect ke service, dapet banner + menu:
 [5] quit
 ```
 
-option `[4]` yang paling berguna, karena dia spill implementasi PRNG-nya:
+Option `[4]` yang paling berguna. Gw pencet itu duluan.
 
-```python
+---
+
+## option [4]: spill PRNG + padding
+
+Keluarannya kurang lebih gini:
+
+```
+Qx = ...
+Qy = ...
+# secp256k1 params are standard. Public key Q printed above.
+# Nonce PRNG (seeded from the per-connection `seed`):
 class NonceRNG:
     MASK = (1<<128)-1
     def __init__(self, seed):
@@ -48,31 +74,32 @@ class NonceRNG:
     def next_scalar(self):
         hi = self._step(); lo = self._step()
         return ((hi<<128)|lo) % N
+# seed is RSA-broadcast (e=3) in menu [1]; the heartbeat signature in
+# menu [2] uses the FIRST next_scalar() as its nonce k.
+# RSA padding:  m = int( b"ZTRUST-IDENTITY-SEED-v1::" || seed(32B) ||
+#                        b"\x00"*8 || (b"ZT")*80 )   -- identical per node.
 ```
 
-plus keterangan penting:
+**Ini gold.** Challenge-nya nge-spill:
 
-- seed di-broadcast pake RSA `e=3` ke 3 replica (menu `[1]`)
-- heartbeat signature di menu `[2]` pake **FIRST** `next_scalar()` sebagai nonce `k`
-- padding RSA-nya deterministic:
+1. seed di-broadcast RSA `e=3` ke 3 node, **padding identik**
+2. heartbeat di menu `[2]` pake **FIRST** `next_scalar()` sebagai nonce `k`
+3. format padding deterministic: prefix + seed 32 byte + suffix
 
-```
-m = int( b"ZTRUST-IDENTITY-SEED-v1::" || seed(32B) || b"\x00"*8 || (b"ZT")*80 )
-```
-
-jadi rantai attack-nya udah keliatan dari sini:
+Jadi rantai attack-nya udah kebayang dari sini:
 
 ```
-RSA e=3 broadcast → ambil seed → replay PRNG → dapet k → recover d → forge admin sig
+RSA e=3 broadcast → ambil seed → replay PRNG → dapet k
+→ recover d dari (r,s,k,z) → forge sig admin=true → login
 ```
 
 ---
 
-## step 1  hastad broadcast
+## step 1  Hastad broadcast (menu [1])
 
-menu `[1]` ngasih 3 ciphertext dengan `e = 3` dan plainteks yang **sama** (padding-nya identik per node). classic Hastad.
+Menu `[1]` ngasih tiga pasang `(N, e=3, C)` dengan plainteks yang **sama**. Classic Hastad.
 
-asalkan `m^3 < N1*N2*N3` (yang hampir pasti, karena `m` cuma ~1800 bit dan modulus 2048-bit), CRT langsung ngasih `m^3` exact, trus integer cube root.
+Asalkan `m³ < N1·N2·N3` (hampir pasti — `m` cuma ~1800 bit, modulus 2048-bit), CRT langsung ngasih `m³` exact, trus integer cube root.
 
 ```python
 def crt(rems, mods):
@@ -93,84 +120,95 @@ def iroot(n, k=3):
             return x
         x = y
 
-x = crt(Cs, Ns)   # = m^3
+x = crt([C1, C2, C3], [N1, N2, N3])  # = m^3
 m = iroot(x, 3)
-assert m**3 == x
+assert m ** 3 == x
 ```
 
-parse padding-nya:
+Parse padding:
 
 ```python
 prefix = b"ZTRUST-IDENTITY-SEED-v1::"
-suffix = b"\x00"*8 + b"ZT"*80
+suffix = b"\x00" * 8 + b"ZT" * 80
 raw = long_to_bytes(m, len(prefix) + 32 + len(suffix))
-seed_bytes = raw[len(prefix):len(prefix)+32]
+assert raw.startswith(prefix) and raw.endswith(suffix)
+seed_bytes = raw[len(prefix):len(prefix) + 32]
 seed = bytes_to_long(seed_bytes)
 ```
 
-seed ketemu. gampang.
+Seed ketemu. Gampang. (Di run gw: `m` bitlen 1799, seed 32 byte clean.)
 
 ---
 
-## step 2  replay PRNG, ambil k
+## step 2  replay PRNG, ambil k (menu [2])
 
-PRNG-nya deterministic dari seed, dan challenge bilang heartbeat pake scalar **pertama**. jadi:
+PRNG-nya deterministic dari seed. Challenge bilang heartbeat pake scalar **pertama**. Jadi:
 
 ```python
 rng = NonceRNG(seed)
 k = rng.next_scalar()
 ```
 
-verify dulu biar ga malu:
+Verify biar nggak malu:
 
 ```python
-R = k * G
+R = k * G   # G = secp256k1 generator
 assert (R.x() % n) == r_heartbeat
 ```
 
-match. nice.
+**Match.** Berarti `k` bener.
+
+Heartbeat messagenya:
+
+```
+msg = ztrust-session-heartbeat
+r = <besar>
+s = <besar>
+```
 
 ---
 
-## step 3  recover private key
+## step 3  recover private key d
 
-ECDSA:
+ECDSA klasik:
 
-\[
-s \equiv k^{-1}(z + r\cdot d) \pmod n
-\]
+```
+s ≡ k⁻¹ (z + r·d)  (mod n)
+```
 
 jadi:
 
-\[
-d \equiv r^{-1}(s\cdot k - z) \pmod n
-\]
-
-`z` = `SHA256(b"ztrust-session-heartbeat")` diinterpretasi sebagai integer (secp256k1 order 256-bit, jadi full hash, gak kepotong).
-
-```python
-z = bytes_to_long(sha256(msg_hb).digest()) % n
-d = (inverse(r, n) * (s * k - z)) % n
-
-assert (d * G).x() == Qx   # cocok sama pubkey dari menu [4]
+```
+d ≡ r⁻¹ (s·k − z)  (mod n)
 ```
 
-private key kebuka.
+`z` = SHA256 dari message, diinterpretasi sebagai integer. Order secp256k1 256-bit, jadi full hash, nggak kepotong.
+
+```python
+z = bytes_to_long(sha256(b"ztrust-session-heartbeat").digest()) % n
+d = (inverse(r, n) * (s * k - z)) % n
+
+# cek ke pubkey dari menu [4]
+assert (d * G).x() == Qx
+assert (d * G).y() == Qy
+```
+
+**Private key kebuka.** Satu sesi, beres.
 
 ---
 
-## step 4  forge + login
+## step 4  forge admin + login (menu [3])
 
-tinggal sign pesan yang diminta:
+Tinggal sign pesan yang diminta. `k` bebas asal valid:
 
 ```python
 msg = b"admin=true"
-k2 = random.randrange(1, n)   # k bebas, asal valid
+k2 = bytes_to_long(os.urandom(32)) % n
 r2 = (k2 * G).x() % n
 s2 = (inverse(k2, n) * (z_admin + r2 * d)) % n
 ```
 
-submit di menu `[3]`:
+Submit di menu `[3]`:
 
 ```
 r> <r2>
@@ -178,9 +216,11 @@ s> <s2>
 access granted. flag: polriCTF26{hastad_broadcast_leaks_the_ecdsa_nonce_and_the_curve_falls}
 ```
 
+**Dapet.**
+
 ---
 
-## full solver (ringkas)
+## full solver (yang gw pake)
 
 ```python
 #!/usr/bin/env python3
@@ -209,7 +249,7 @@ def recv_idle(s, idle=0.6, total=12):
     return buf
 
 def send_opt(s, opt):
-    s.sendall(opt + (b"" if opt.endswith(b"\n") else b"\n"))
+    s.sendall(opt if opt.endswith(b"\n") else opt + b"\n")
     return recv_idle(s)
 
 def pint(label, t):
@@ -224,10 +264,10 @@ def crt(rems, mods):
         x += a * Mi * inverse(Mi, m)
     return x % M
 
-def iroot(n, k=3):
-    x = 1 << ((n.bit_length() + k - 1) // k)
+def iroot(val, k=3):
+    x = 1 << ((val.bit_length() + k - 1) // k)
     while True:
-        y = ((k - 1) * x + n // x**(k - 1)) // k
+        y = ((k - 1) * x + val // (x ** (k - 1))) // k
         if y >= x: return x
         x = y
 
@@ -263,20 +303,21 @@ out1 = send_opt(s, b"1").decode()
 Ns = [pint("N1", out1), pint("N2", out1), pint("N3", out1)]
 Cs = [pint("C1", out1), pint("C2", out1), pint("C3", out1)]
 
-m = iroot(crt(Cs, Ns), 3)
-assert m**3 == crt(Cs, Ns)
+m3 = crt(Cs, Ns)
+m = iroot(m3, 3)
+assert m ** 3 == m3
 
 prefix = b"ZTRUST-IDENTITY-SEED-v1::"
-suffix = b"\x00"*8 + b"ZT"*80
+suffix = b"\x00" * 8 + b"ZT" * 80
 raw = long_to_bytes(m, len(prefix) + 32 + len(suffix))
-seed = bytes_to_long(raw[len(prefix):len(prefix)+32])
+seed = bytes_to_long(raw[len(prefix):len(prefix) + 32])
 
 k = NonceRNG(seed).next_scalar()
 assert (k * G).x() % n == r_hb
 
 d = (inverse_mod(r_hb, n) * (s_hb * k - hmsg(msg_hb))) % n
-assert (d * G).x() == Qx
-print("[+] d recovered:", d)
+assert (d * G).x() == Qx and (d * G).y() == Qy
+print("[+] d recovered")
 
 admin = b"admin=true"
 while True:
@@ -291,19 +332,26 @@ s.sendall(f"{s2}\n".encode()); time.sleep(0.3)
 print(recv_idle(s, idle=1.0, total=5).decode())
 ```
 
+Deps: `pip install pycryptodome ecdsa`
+
 ---
 
-## takeaway
+## ringkasan eksploitasi
 
-inti challenge-nya bukan di curve-nya, tapi di **key management yang ampas**:
+```
+1. Menu [4] → baca PRNG + format padding + pubkey Q
+2. Menu [1] → 3 ciphertext RSA e=3, plainteks sama
+3. Hastad (CRT + cube root) → recover m → parse seed 32B
+4. Replay NonceRNG(seed) → k = next_scalar() pertama
+5. Menu [2] → ambil (r,s) heartbeat, verify kG.x == r
+6. d = r⁻¹ (s·k − z) mod n → cocok sama Q
+7. Forge ECDSA atas b"admin=true"
+8. Menu [3] → submit (r,s) → flag
+```
 
-1. seed yang sama di-encrypt ke 3 modulus dengan `e=3` + padding identik → Hastad free win
-2. nonce ECDSA diturunin dari seed itu secara deterministic → `k` known
-3. known nonce = known private key. selesai.
+---
 
-kalau salah satu aja diubah (padding beda per node / OAEP, atau `k` beneran random / RFC6979), chain-nya putus. di sini semuanya disusun biar domino.
-
-flagnya juga spoiler sih:
+## flag
 
 ```
 polriCTF26{hastad_broadcast_leaks_the_ecdsa_nonce_and_the_curve_falls}
@@ -311,10 +359,19 @@ polriCTF26{hastad_broadcast_leaks_the_ecdsa_nonce_and_the_curve_falls}
 
 ---
 
-## referensi
+## catatan pribadi
 
-- Hastad's broadcast attack — Boneh, *Twenty Years of Attacks on the RSA Cryptosystem*
-- ECDSA nonce reuse / known nonce → private key recovery (same math as nonce reuse across two messages)
-- secp256k1 order & generator (standard)
+- Awalnya dari judul "coppersmith-curve" gw kira bakalan Franklin-Reiter / stereotypic Coppersmith yang ribet. Ternyata enggak — Hastad polos + known nonce.
+- Key management-nya yang ampas, bukan curvenya:
+  - seed yang sama di-encrypt ke 3 modulus pake `e=3` + padding identik → Hastad free win
+  - nonce ECDSA diturunin dari seed itu secara deterministic → `k` known
+  - known nonce = known private key. Selesai.
+- Kalau salah satu aja diubah (padding beda per node / OAEP, atau `k` beneran random / RFC6979), chain-nya putus. Di sini semuanya disusun biar domino.
+- Flagnya juga spoiler sih. Marketing team challenge-nya jujur banget.
+- Hal kecil yang bikin sempet panik sebentar: `long_to_bytes(seed)` vs fixed 32-byte. Di kasus ini seed full 32B jadi nggak ada leading-zero issue. Kalau seed kecil, hati-hati — PRNG hash-nya ikut kepotong.
 
-"ditulis oleh aku gw, Salam pria solo!"
+---
+
+*Ditulis oleh aku gw, salam pria solo! , 2026-08-01*
+
+*Tools: python3, pycryptodome, ecdsa, socket mentah (nc nggak keinstall)*
