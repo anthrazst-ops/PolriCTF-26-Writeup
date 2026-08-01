@@ -1,4 +1,4 @@
-# coppersmith-curve — Zero-Trust Identity
+# coppersmith-curve  Zero-Trust Identity
 
 **CTF:** polriCTF 2026  
 **Category:** Crypto  
@@ -68,7 +68,7 @@ RSA e=3 broadcast → ambil seed → replay PRNG → dapet k → recover d → f
 
 ---
 
-## step 1 — hastad broadcast
+## step 1  hastad broadcast
 
 menu `[1]` ngasih 3 ciphertext dengan `e = 3` dan plainteks yang **sama** (padding-nya identik per node). classic Hastad.
 
@@ -112,7 +112,7 @@ seed ketemu. gampang.
 
 ---
 
-## step 2 — replay PRNG, ambil k
+## step 2  replay PRNG, ambil k
 
 PRNG-nya deterministic dari seed, dan challenge bilang heartbeat pake scalar **pertama**. jadi:
 
@@ -132,7 +132,7 @@ match. nice.
 
 ---
 
-## step 3 — recover private key
+## step 3  recover private key
 
 ECDSA:
 
@@ -159,7 +159,7 @@ private key kebuka.
 
 ---
 
-## step 4 — forge + login
+## step 4  forge + login
 
 tinggal sign pesan yang diminta:
 
@@ -317,4 +317,4 @@ polriCTF26{hastad_broadcast_leaks_the_ecdsa_nonce_and_the_curve_falls}
 - ECDSA nonce reuse / known nonce → private key recovery (same math as nonce reuse across two messages)
 - secp256k1 order & generator (standard)
 
-admin syalan susah bikin nih writeup
+"ditulis oleh aku gw, Salam pria solo!"
