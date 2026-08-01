@@ -1,4 +1,4 @@
-# InsightFlow — dari kotak pencarian sampe dapet flag lewat fullwidth titik
+# InsightFlow ~ dari kotak pencarian sampe dapet flag lewat fullwidth titik
 
 > **CTF:** polriCTF26 (?)  
 > **Target:** `18.143.187.232`  
@@ -116,7 +116,7 @@ Balik:
 {"ok":false,"error":"refused: that target is on a private/internal network"}
 ```
 
-Oke, ada guard. Gw baca source `server.js` (nanti gw jelasin cara bacanya) — ternyata `guardUrl()` pakai `net.isIPv4()` buat blokir IP privat. Kalo hostname bukan literal IPv4, dia skip check.
+Oke, ada guard. Gw baca source `server.js` (nanti gw jelasin cara bacanya) ternyata `guardUrl()` pakai `net.isIPv4()` buat blokir IP privat. Kalo hostname bukan literal IPv4, dia skip check.
 
 Terus gw ingat trik `nip.io` — `127.0.0.1.nip.io` resolve ke `127.0.0.1` tapi bukan string IP murni (`net.isIPv4` = false). Gw coba:
 
@@ -265,5 +265,5 @@ polriCTF26{fu11w1dth_d0ts_p01nt_str41ght_1nt0_th3_c0ntr0l_pl4n3}
 
 ---
 
-*Ditulis dengan tangan (bukan AI yang rapi-rapi), 2026-08-01*
+*Ditulis oleh aku gw, salam pria solo! , 2026-08-01*
 *Tools: curl, python3, browser devtools (buat baca source HTML Pointers)*
