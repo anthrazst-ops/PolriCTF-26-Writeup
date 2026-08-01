@@ -130,7 +130,7 @@ polriCTF26{SMC_1S_S0_C00L!!}
 
 ## catatan pribadi
 
-- SMC bikin static view di IDA keliatan “rusak” — jangan panik, cari `mprotect` / `mmap` / writable+executable region.
+- SMC bikin static view di IDA keliatan “rusak” jangan panik, cari `mprotect` / `mmap` / writable+executable region.
 - Magic constant GCC sering jadi cheat code buat nebak operasi aritmetika (`% 5`, `/ 3`, dll).
 - Transform flag-nya pendek (3 step), jadi paling aman reverse dari ciphertext, bukan brute.
 
