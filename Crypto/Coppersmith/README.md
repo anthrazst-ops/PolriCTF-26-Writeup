@@ -20,7 +20,7 @@ Aksesnya:
 nc 18.143.187.232 9008
 ```
 
-(di mesin gw `nc` nggak ada, jadi pake python socket — sama aja.)
+(di mesin gw `nc` nggak ada, jadi pake python socket sama aja.)
 
 Banner-nya:
 
