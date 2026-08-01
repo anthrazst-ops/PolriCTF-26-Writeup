@@ -11,11 +11,11 @@
 
 ## awalnya: ELF stripped, IDA bingung
 
-Dapet biner `crackme_polri` — ELF 64-bit, stripped. Buka di IDA Free, langsung terasa aneh: area yang keliatan kayak fungsi checker isinya sampah / pola aneh, bukan logic flag yang bersih.
+Dapet biner `crackme_polri`  ELF 64-bit, stripped. Buka di IDA Free, langsung terasa aneh: area yang keliatan kayak fungsi checker isinya sampah / pola aneh, bukan logic flag yang bersih.
 
 Pas ditelusuri lebih dalam, ternyata ini **Self-Modifying Code (SMC)**. Fungsi pengecek flag-nya **terenkripsi di memori**, baru didekripsi pas runtime lewat `mmap()` + `mprotect()`.
 
-Jadi static analysis doang nggak cukup — harus liat gimana dia nge-decrypt dirinya sendiri dulu.
+Jadi static analysis doang nggak cukup  harus liat gimana dia nge-decrypt dirinya sendiri dulu.
 
 ---
 
